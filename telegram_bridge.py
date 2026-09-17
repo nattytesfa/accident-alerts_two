@@ -323,6 +323,18 @@ def main():
                     else:
                         print(f"[{datetime.now().strftime('%H:%M:%S')}] No target chat for alert (no approved hospitals?)")
                     save_alert_to_dashboard(hospital, lat, lng)
+
+                    # Tell the Arduino which hospital was chosen so its LCD
+                    # can show the real, live-approved name instead of a
+                    # generic "Alert Sent!" message. The Arduino only waits
+                    # a few seconds for this — if it's late or lost, the
+                    # LCD just falls back to the generic message, so a
+                    # failure here never blocks anything else.
+                    if hospital:
+                        try:
+                            ser.write(f"HOSP:{hospital}\n".encode("utf-8"))
+                        except Exception as e:
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] Error writing hospital name back to Arduino: {e}")
                     continue
 
                 if in_alert:
