@@ -9,10 +9,9 @@ from datetime import datetime
 # --- CONFIGURATION ---
 SERIAL_PORT = os.environ.get("ACCIDENT_ALERTS_SERIAL_PORT", "COM3")
 BAUD_RATE = 9600
-BOT_TOKEN = os.environ.get(
-    "ACCIDENT_ALERTS_BOT_TOKEN",
-    "***REDACTED_TELEGRAM_BOT_TOKEN***",
-)
+BOT_TOKEN = os.environ.get("ACCIDENT_ALERTS_BOT_TOKEN")
+if not BOT_TOKEN:
+    raise SystemExit("Set ACCIDENT_ALERTS_BOT_TOKEN to your Telegram bot token.")
 
 # Single chat that receives ALL accident alerts ("one bot for all hospitals").
 # Hospitals are differentiated by lat/lng; the bridge picks the nearest one and
