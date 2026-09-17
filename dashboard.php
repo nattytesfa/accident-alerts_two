@@ -68,7 +68,6 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Command Center - Accident Alerts</title>
   <link rel="stylesheet" href="styles.css">
-  <meta http-equiv="refresh" content="10">
 </head>
 <body>
 
@@ -457,6 +456,39 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
     })();
   </script>
 
+  <script>
+    /* Auto-refresh driven by JS instead of <meta http-equiv="refresh">.
+       Never fires while a modal is open, and resets on user typing so a
+       reload can't wipe what's being entered. */
+    (function () {
+      var REFRESH_MS = 10000;
+      var timer = null;
+      var paused = false;
+
+      function isModalOpen() {
+        return document.querySelector('.modal.open') !== null;
+      }
+      function schedule() {
+        if (paused || isModalOpen()) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () { timer = null; location.reload(); }, REFRESH_MS);
+      }
+      function pause() { paused = true; if (timer) { clearTimeout(timer); timer = null; } }
+      function resume() { paused = false; schedule(); }
+
+      window.RefreshGuard = { pause: pause, resume: resume, schedule: schedule };
+
+      document.addEventListener('input', schedule);
+      document.addEventListener('click', function (e) {
+        var target = e.target || document;
+        if (typeof target.closest === 'function' && target.closest('.modal')) return;
+        schedule();
+      });
+      document.addEventListener('keydown', schedule);
+      schedule();
+    })();
+  </script>
+
   <?php if ($isAdmin): ?>
   <div id="addModal" class="modal" aria-hidden="true">
     <div class="modal-backdrop" data-close></div>
@@ -489,7 +521,7 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
         </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-sm btn-maps" data-close>Cancel</button>
-          <button type="submit" class="btn btn-approve btn-sm">➕ Add Hospital</button>
+          <button type="submit" class="btn btn-approve btn-sm">Save</button>
         </div>
       </form>
     </div>
@@ -542,6 +574,18 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
       });
     });
 
+    /* Persist the Add Hospital modal fields so a reload doesn't lose them. */
+    var ADD_FIELDS = ['add_name', 'add_lat', 'add_lng', 'add_chat'];
+    ADD_FIELDS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (localStorage.getItem('add_' + id)) el.value = localStorage.getItem('add_' + id);
+      el.addEventListener('input', function () {
+        if (el.value.trim()) localStorage.setItem('add_' + id, el.value.trim());
+        else localStorage.removeItem('add_' + id);
+      });
+    });
+
     document.querySelectorAll('#approvals [data-action]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var action = btn.dataset.action;
@@ -585,12 +629,10 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
     var addForm = document.getElementById('addHospitalForm');
 
     function pauseRefresh() {
-      var m = document.querySelector('meta[http-equiv="refresh"]');
-      if (m) { m.dataset.original = m.content; m.content = '3600'; }
+      if (window.RefreshGuard) window.RefreshGuard.pause();
     }
     function resumeRefresh() {
-      var m = document.querySelector('meta[http-equiv="refresh"]');
-      if (m && m.dataset.original) m.content = m.dataset.original;
+      if (window.RefreshGuard) window.RefreshGuard.resume();
     }
     function openAddModal(resetForm) {
       sessionStorage.setItem('add_modal_open', '1');
@@ -630,7 +672,7 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
       e.preventDefault();
       var btn = addForm.querySelector('[type="submit"]');
       btn.disabled = true;
-      btn.textContent = '⏳ Adding…';
+      btn.textContent = '⏳ Saving…';
       fetch('add_hospital.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -639,17 +681,19 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (res.status === 'ok') {
+          ADD_FIELDS.forEach(function (id) { localStorage.removeItem('add_' + id); });
+          closeAddModal();
           showToast('Hospital added to the approved list.', 'success');
           location.reload();
         } else {
           btn.disabled = false;
-          btn.textContent = '➕ Add Hospital';
+          btn.textContent = 'Save';
           showToast(res.message, 'error');
         }
       })
       .catch(function () {
         btn.disabled = false;
-        btn.textContent = '➕ Add Hospital';
+        btn.textContent = 'Save';
         showToast('Something went wrong reaching the server.', 'error');
       });
     });

@@ -13,10 +13,10 @@ BOT_TOKEN = os.environ.get("ACCIDENT_ALERTS_BOT_TOKEN")
 if not BOT_TOKEN:
     raise SystemExit("Set ACCIDENT_ALERTS_BOT_TOKEN to your Telegram bot token.")
 
-# Single chat that receives ALL accident alerts ("one bot for all hospitals").
-# Hospitals are differentiated by lat/lng; the bridge picks the nearest one and
-# names it in the alert. If you don't set this, the nearest hospital's own
-# chat_id is used instead.
+# Fallback chat that receives accident alerts when the nearest hospital has no
+# chat_id of its own. The bridge picks the nearest approved hospital by lat/lng
+# and sends the alert to that hospital's registered Telegram chat first; only
+# if it has none does it fall back to this shared chat below.
 ALERT_CHAT_ID = os.environ.get("ACCIDENT_ALERTS_CHAT_ID", "379998469")
 
 # PHP web app endpoints
@@ -323,7 +323,9 @@ def main():
 
                     if routed:
                         msg = format_alert(hospital, lat, lng, distance, maplink, routed)
-                        send_chat = ALERT_CHAT_ID or chat_id
+                        # Send to the nearest hospital's own registered chat;
+                        # fall back to the shared alert chat if it has none.
+                        send_chat = chat_id or ALERT_CHAT_ID
                         if send_chat:
                             send_telegram_message(send_chat, msg)
                         else:

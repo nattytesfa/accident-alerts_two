@@ -950,6 +950,11 @@ tbody tr:hover {
   background: #b91c1c;
 }
 
+/* Space between adjacent Approve / Reject buttons */
+.btn-approve + .btn-reject {
+  margin-left: 10px;
+}
+
 .btn-approve:disabled,
 .btn-reject:disabled,
 .btn-approve:disabled:hover,
