@@ -235,14 +235,18 @@ def save_alert_to_dashboard(hospital, lat, lng):
     except Exception as e:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Error saving to dashboard: {e}")
 
-def format_alert(hospital, lat, lng, distance, maplink):
+def format_alert(hospital, lat, lng, distance, maplink, routed):
     now = datetime.now().strftime("%H:%M:%S")
+    if routed:
+        routing = (f"🏥 Nearest Hospital:\n{hospital}\n\n"
+                   f"📏 Distance:\n{distance} km")
+    else:
+        routing = "🏥 Nearest Hospital:\nNo hospital available"
     return (
         f"🚨 ACCIDENT ALERT 🚨\n\n"
         f"An accident has been detected!\n\n"
-        f"📍 Location:\n{maplink}\n\n"
-        f"🏥 Nearest Hospital:\n{hospital}\n\n"
-        f"📏 Distance:\n{distance} km\n\n"
+        f"📍 Location:\n{maplink or 'Unknown'}\n\n"
+        f"{routing}\n\n"
         f"⏰ Time: {now}\n\n"
         f"Please respond immediately!"
     )
@@ -268,9 +272,6 @@ def main():
     last_update_id = 0
     last_poll = 0
     last_notify_check = 0
-
-    # Cache approved hospitals (refreshed on each alert) so /hospitals is cheap.
-    hospitals_cache = []
 
     while True:
         try:
@@ -301,39 +302,47 @@ def main():
                 if line == "===ALERT_END===" and in_alert:
                     in_alert = False
 
-                    # Route to the nearest APPROVED hospital (bridge-side logic).
-                    hospitals_cache = fetch_hospitals()
-                    if lat and lng:
-                        nearest, dist_km = nearest_hospital(hospitals_cache, float(lat), float(lng))
-                        if nearest:
-                            hospital = nearest["name"]
-                            chat_id = nearest.get("chat_id") or chat_id
-                            distance = f"{dist_km:.1f}"
-                        else:
-                            hospital = hospital or "Unknown"
-                            chat_id = chat_id or ""
-                        if not maplink:
-                            maplink = f"https://maps.google.com/?q={lat},{lng}"
+                    if not maplink and lat and lng:
+                        maplink = f"https://maps.google.com/?q={lat},{lng}"
 
-                    msg = format_alert(hospital, lat, lng, distance, maplink)
-                    send_chat = ALERT_CHAT_ID or chat_id
-                    if send_chat:
-                        send_telegram_message(send_chat, msg)
+                    # Route to the nearest APPROVED hospital (bridge-side logic).
+                    matched = None
+                    if lat and lng:
+                        matched, dist_km = nearest_hospital(fetch_hospitals(), float(lat), float(lng))
+                        if matched:
+                            hospital = matched["name"]
+                            chat_id = matched.get("chat_id") or chat_id
+                            distance = f"{dist_km:.1f}"
+
+                    routed = matched is not None
+                    if not routed:
+                        # No approved hospital to route to: detect the accident
+                        # and log it, but do NOT dispatch a Telegram alert.
+                        hospital = hospital or "No hospital available"
+                        distance = ""
+
+                    if routed:
+                        msg = format_alert(hospital, lat, lng, distance, maplink, routed)
+                        send_chat = ALERT_CHAT_ID or chat_id
+                        if send_chat:
+                            send_telegram_message(send_chat, msg)
+                        else:
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] No target chat for alert (nearest hospital has no chat_id)")
                     else:
-                        print(f"[{datetime.now().strftime('%H:%M:%S')}] No target chat for alert (no approved hospitals?)")
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] Accident detected ({lat},{lng}) but no approved hospital available — no alert sent")
                     save_alert_to_dashboard(hospital, lat, lng)
 
-                    # Tell the Arduino which hospital was chosen so its LCD
-                    # can show the real, live-approved name instead of a
-                    # generic "Alert Sent!" message. The Arduino only waits
-                    # a few seconds for this — if it's late or lost, the
-                    # LCD just falls back to the generic message, so a
-                    # failure here never blocks anything else.
-                    if hospital:
-                        try:
-                            ser.write(f"HOSP:{hospital}\n".encode("utf-8"))
-                        except Exception as e:
-                            print(f"[{datetime.now().strftime('%H:%M:%S')}] Error writing hospital name back to Arduino: {e}")
+                    # Tell the Arduino what to show on its LCD: the routed hospital name, or a
+                    # clear "not sent" note when no hospital was available (so it
+                    # never falsely claims the alert was sent). The Arduino only
+                    # waits a few seconds for this — if it's late or lost, it
+                    # falls back to its generic message, and a failure here never
+                    # blocks anything else.
+                    lcd_msg = hospital if routed else "Alert not sent: no hospital available"
+                    try:
+                        ser.write(f"HOSP:{lcd_msg}\n".encode("utf-8"))
+                    except Exception as e:
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] Error writing hospital name back to Arduino: {e}")
                     continue
 
                 if in_alert:

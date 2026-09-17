@@ -9,6 +9,7 @@ if (isset($_SESSION['user_id'])) {
 
 $error = "";
 $registered = isset($_GET['registered']);
+$disabled = isset($_GET['reg']);
 $username = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
@@ -57,6 +58,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         <div class="alert-msg" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;">✅ Account created successfully. Please sign in.</div>
       <?php endif; ?>
 
+      <?php if ($disabled): ?>
+        <div class="alert-msg alert-error">Registration is disabled — this system uses a single admin account.</div>
+      <?php endif; ?>
+
       <form method="POST" action="login.php">
         <div class="form-group">
           <label for="username">Username</label>
@@ -69,7 +74,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         <button type="submit" class="btn btn-primary login-btn">Sign In</button>
       </form>
 
-      <p class="login-footer">New to the system? <a href="register.php" style="color:var(--primary);font-weight:600;">Create an account</a></p>
+      <p class="login-footer">Admin access only.</p>
     </div>
   </div>
 </body>
