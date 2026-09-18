@@ -1,8 +1,10 @@
 import glob
 import math
 import os
+import queue
 import serial
 import requests
+import threading
 import time
 from datetime import datetime
 
@@ -55,15 +57,39 @@ def send_telegram_message(chat_id, message):
         return False
 
 def tg_get_updates(offset):
-    """Poll Telegram for new incoming messages."""
+    """Poll Telegram for new incoming messages (long polling).
+
+    Returns the list of updates, or None when the request failed."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     try:
-        response = requests.get(url, params={"offset": offset, "timeout": 0}, timeout=15)
+        response = requests.get(url, params={"offset": offset, "timeout": 25}, timeout=35)
         response.raise_for_status()
         return response.json().get("result", [])
     except Exception as e:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Error polling Telegram: {e}")
-        return []
+        return None
+
+# Commands are fetched on a background thread via long polling so the bot replies
+# instantly, while the main loop keeps handling the Arduino serial port.
+telegram_queue = queue.Queue()
+
+def telegram_poll_forever():
+    """Long-poll Telegram in a daemon thread, queueing incoming messages."""
+    last_update_id = 0
+    while True:
+        updates = tg_get_updates(last_update_id + 1)
+        if updates is None:
+            # Network/API failure — back off before retrying.
+            time.sleep(5)
+            continue
+        if not updates:
+            # Long poll came back empty (should only happen on timeout).
+            time.sleep(1)
+            continue
+        for update in updates:
+            if int(update["update_id"]) > last_update_id:
+                last_update_id = int(update["update_id"])
+            telegram_queue.put(("update", update))
 
 registration_state = {}
 
@@ -321,18 +347,20 @@ def main():
     lng = ""
     distance = ""
     maplink = ""
-    last_update_id = 0
-    last_poll = 0
     last_notify_check = 0
+
+    threading.Thread(target=telegram_poll_forever, daemon=True).start()
+    print("[%s] Telegram long-polling started" % datetime.now().strftime('%H:%M:%S'))
 
     while True:
         try:
-            # Poll Telegram for commands (~every 1s) so /start works
-            if time.time() - last_poll >= 1:
-                last_poll = time.time()
-                for update in tg_get_updates(last_update_id + 1):
-                    if int(update["update_id"]) > last_update_id:
-                        last_update_id = int(update["update_id"])
+            # Handle any command messages queued by the poll thread.
+            while True:
+                try:
+                    kind, update = telegram_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if kind == "update":
                     msg = update.get("message", {})
                     txt = msg.get("text", "")
                     if txt:
@@ -412,6 +440,10 @@ def main():
                         distance = line.replace("DISTANCE:", "").strip()
                     elif line.startswith("MAPLINK:"):
                         maplink = line.replace("MAPLINK:", "").strip()
+
+            # Avoid busy-spinning when idle so the loop stays responsive
+            # without hammering the CPU.
+            time.sleep(0.05)
 
         except Exception as e:
             print(f"Error: {e}")
