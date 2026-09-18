@@ -704,7 +704,7 @@ $rejectedCount = (int)$conn->query("SELECT COUNT(*) AS c FROM hospitals WHERE st
 
     function openConfirm(name, id) {
       document.getElementById('confirmText').textContent =
-        'Permanently delete "' + name + '"? Alerts already recorded stay on the dashboard, but this hospital will no longer receive accident alerts.';
+        'Permanently delete "' + name + '"? Alerts already recorded stay on the dashboard, but this hospital will no longer receive accident alerts. Its Telegram contact will be notified and can register a new hospital.';
       pendingDeleteId = id;
       sessionStorage.setItem('confirm_modal_open', JSON.stringify({ id: id, name: name }));
       pauseRefresh();

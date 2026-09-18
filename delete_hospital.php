@@ -30,7 +30,7 @@ if ($id <= 0) {
     respond(false, 'Invalid request', 400);
 }
 
-$stmt = $conn->prepare("SELECT name FROM hospitals WHERE id = ?");
+$stmt = $conn->prepare("SELECT name, chat_id FROM hospitals WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
 $row = $stmt->get_result()->fetch_assoc();
@@ -42,6 +42,13 @@ if (!$row) {
 $stmt2 = $conn->prepare("DELETE FROM hospital_notifications WHERE hospital = ?");
 $stmt2->bind_param("s", $row['name']);
 $stmt2->execute();
+
+/* Tell the registrant's chat that it was deleted and they can re-register. */
+if (!empty($row['chat_id'])) {
+    $stmtN = $conn->prepare("INSERT INTO hospital_notifications (hospital, chat_id, type) VALUES (?, ?, 'deleted')");
+    $stmtN->bind_param("ss", $row['name'], $row['chat_id']);
+    $stmtN->execute();
+}
 
 $stmt3 = $conn->prepare("DELETE FROM hospitals WHERE id = ?");
 $stmt3->bind_param("i", $id);

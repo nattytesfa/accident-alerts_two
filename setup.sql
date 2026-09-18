@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS hospital_notifications (
   id INT AUTO_INCREMENT PRIMARY KEY,
   hospital VARCHAR(100),
   chat_id VARCHAR(50),
-  type ENUM('approved','rejected'),
+  type ENUM('approved','rejected','deleted'),
   delivered TINYINT(1) DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

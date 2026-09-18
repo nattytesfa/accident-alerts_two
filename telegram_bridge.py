@@ -288,9 +288,12 @@ def process_notifications():
         if n.get("type") == "approved":
             msg = (f"🏥 Hospital *{n['hospital']}* was APPROVED ✅\n\n"
                    f"It is now active for accident alert routing.")
+        elif n.get("type") == "deleted":
+            msg = (f"🏥 Hospital *{n['hospital']}* was DELETED by the admin 🗑\n\n"
+                   f"It will NOT receive accident alerts anymore. You can register a new hospital by sending /registerhospital")
         else:
             msg = (f"🏥 Hospital *{n['hospital']}* was REJECTED ❌\n\n"
-                   f"It will NOT receive accident alerts.")
+                   f"It will NOT receive accident alerts. You can apply again with /registerhospital")
         if send_telegram_message(chat_id, msg):
             sent_ids.append(str(n["id"]))
 
