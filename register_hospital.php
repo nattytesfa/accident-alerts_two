@@ -46,12 +46,33 @@ $name = substr($name, 0, 100);
 $chat_id = substr($chat_id, 0, 50);
 $reference = substr($reference, 0, 300);
 
+/* Block duplicate registrations: an approved or pending hospital cannot be
+ * registered again, and one Telegram account can only register one hospital.
+ * (A previously rejected request may be re-submitted.) */
+$stmt = $conn->prepare("SELECT status FROM hospitals WHERE name = ?");
+$stmt->bind_param("s", $name);
+$stmt->execute();
+$existing = $stmt->get_result()->fetch_assoc();
+if ($existing && in_array($existing['status'], ['pending', 'approved'], true)) {
+    respond(false, 'A hospital named "' . $name . '" is already ' . $existing['status'] . '.', 409);
+}
+
+if ($chat_id !== '') {
+    $stmt = $conn->prepare("SELECT name FROM hospitals WHERE chat_id = ? AND name <> ? LIMIT 1");
+    $stmt->bind_param("ss", $chat_id, $name);
+    $stmt->execute();
+    $other = $stmt->get_result()->fetch_assoc();
+    if ($other) {
+        respond(false, 'This Telegram account has already registered "' . $other['name'] . '".', 409);
+    }
+}
+
 $stmt = $conn->prepare("INSERT INTO hospitals (name, chat_id, reference, status)
                         VALUES (?, ?, ?, 'pending')
                         ON DUPLICATE KEY UPDATE
                             chat_id = VALUES(chat_id),
                             reference = VALUES(reference),
-                            status = IF(status = 'approved', status, 'pending')");
+                            status = 'pending'");
 $stmt->bind_param("sss", $name, $chat_id, $reference);
 
 if ($stmt->execute()) {

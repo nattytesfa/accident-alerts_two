@@ -23,6 +23,7 @@ ALERT_CHAT_ID = os.environ.get("ACCIDENT_ALERTS_CHAT_ID", "379998469")
 SERVER_BASE = os.environ.get("ACCIDENT_ALERTS_SERVER", "http://localhost/accident-alerts")
 SERVER_URL = SERVER_BASE + "/endpoint.php"
 HOSPITALS_SYNC_URL = SERVER_BASE + "/hospitals_sync.php"
+CHECK_HOSPITAL_URL = SERVER_BASE + "/check_hospital.php"
 REGISTER_HOSPITAL_URL = SERVER_BASE + "/register_hospital.php"
 NOTIFICATIONS_URL = SERVER_BASE + "/pending_notifications.php"
 NOTIFICATIONS_MARK_URL = SERVER_BASE + "/mark_notifications.php"
@@ -76,6 +77,28 @@ def fetch_hospitals():
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Error fetching hospitals: {e}")
         return []
 
+def check_hospital(name="", chat_id=""):
+    """Return registration status for a name/chat_id, or {} on error."""
+    params = {}
+    if name:
+        params["name"] = name
+    if chat_id:
+        params["chat_id"] = str(chat_id)
+    try:
+        r = requests.get(CHECK_HOSPITAL_URL, params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Error checking hospital: {e}")
+        return {}
+
+def already_registered_message(status):
+    """Human-readable refusal when a hospital name/account already exists."""
+    state = (status or {}).get("status") or "registered"
+    return (f"⚠️ That hospital is already *{state}*. "
+            f"Only one registration per hospital and per Telegram account is allowed.\n"
+            f"Contact the admin to make changes.")
+
 def haversine_km(lat1, lng1, lat2, lng2):
     r = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -120,9 +143,23 @@ def handle_command(chat_id, text):
         return
 
     if text == "/registerhospital" or text.startswith("/registerhospital "):
+        # One Telegram account may only register one hospital.
+        status = check_hospital(chat_id=chat_id)
+        if status.get("chat_exists"):
+            send_telegram_message(
+                chat_id,
+                "⚠️ This Telegram account has already registered a hospital.\n"
+                "Only one registration per account is allowed — contact the admin to make changes.",
+            )
+            return
+
         rest = text[len("/registerhospital"):].strip()
         if rest:
             # /registerhospital Hospital Name  → straight to location step
+            status = check_hospital(name=rest)
+            if status.get("name_exists"):
+                send_telegram_message(chat_id, already_registered_message(status))
+                return
             registration_state[chat_id] = {"step": "link", "name": rest}
             send_telegram_message(
                 chat_id,
@@ -143,6 +180,11 @@ def handle_command(chat_id, text):
         if step == "name":
             name = text.strip()[:100]
             if name:
+                status = check_hospital(name=name)
+                if status.get("name_exists"):
+                    registration_state.pop(chat_id, None)
+                    send_telegram_message(chat_id, already_registered_message(status))
+                    return
                 registration_state[chat_id]["name"] = name
                 registration_state[chat_id]["step"] = "link"
                 send_telegram_message(
@@ -178,11 +220,21 @@ def complete_registration(chat_id, state):
             timeout=10,
         )
         print(f"[{datetime.now().strftime('%H:%M:%S')}] register_hospital: HTTP {r.status_code} {r.text}")
-        send_telegram_message(
-            chat_id,
-            f"✅ Registration request received for *{name}*.\n"
-            f"⏳ Waiting for *admin approval*. You'll be notified of the decision.",
-        )
+        try:
+            res = r.json()
+        except Exception:
+            res = {}
+        if res.get("status") == "ok":
+            send_telegram_message(
+                chat_id,
+                f"✅ Registration request received for *{name}*.\n"
+                f"⏳ Waiting for *admin approval*. You'll be notified of the decision.",
+            )
+        else:
+            send_telegram_message(
+                chat_id,
+                f"⚠️ {res.get('message', 'Could not save the request.')}",
+            )
     except Exception as e:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Error registering hospital: {e}")
         send_telegram_message(chat_id, "❌ Could not save the request. Check the server is running.")
